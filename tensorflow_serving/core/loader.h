@@ -20,12 +20,13 @@ limitations under the License.
 
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow_serving/core/source.h"
+#include "tensorflow_serving/resources/resources.pb.h"
 #include "tensorflow_serving/util/any_ptr.h"
 
 namespace tensorflow {
 namespace serving {
 
-// An standardized abstraction for an object that manages the lifecycle of a
+// A standardized abstraction for an object that manages the lifecycle of a
 // servable, including loading and unloading it. Servables are arbitrary objects
 // that serve algorithms or data that often, though not necessarily, use a
 // machine-learned model.
@@ -47,8 +48,8 @@ namespace serving {
 // servable stream.
 //
 // Implementations need to ensure that the methods they expose are thread-safe,
-// or carefully document and/or coordinate with their clients their thread-
-// safety properties to ensure correctness.
+// or carefully document and/or coordinate their thread-safety properties with
+// their clients to ensure correctness.
 // Servables do not need to worry about concurrent execution of Load()/Unload()
 // as the caller will ensure that does not happen.
 class Loader {
@@ -57,9 +58,29 @@ class Loader {
   // loaded, i.e. between (successful) calls to Load() and Unload().
   virtual ~Loader() = default;
 
+  // Returns an estimate of the resources the servable will consume once loaded.
+  // If the servable has already been loaded, returns an estimate of the actual
+  // resource usage.
+  //
+  // IMPORTANT: This method's implementation must obey following requirements,
+  // which enable the serving system to reason correctly about which servables
+  // can be loaded safely:
+  //  1. The estimate must represent an upper bound on the actual value.
+  //  2. Prior to load, the estimate may include resources that are not bound
+  //     to any specific device instance, e.g. RAM on one of the two GPUs.
+  //  3. While loaded, for any devices with multiple instances (e.g. two GPUs),
+  //     the estimate must specify the instance to which each resource is bound.
+  //  4. The estimate must be monotonically non-increasing, i.e. it cannot
+  //     increase over time.
+  virtual Status EstimateResources(ResourceAllocation* estimate) const = 0;
+
   // Fetches any data that needs to be loaded before using the servable returned
-  // by servable().
-  virtual Status Load() = 0;
+  // by servable(). May use no more resources than the estimate reported by
+  // EstimateResources(). If that estimate included unbound resources (e.g. 2GB
+  // of GPU RAM, but not specifying which of two GPU devices to use), then the
+  // binding of resources to specific device instances must take into account
+  // the availability on each instance, given by 'available_resources'.
+  virtual Status Load(const ResourceAllocation& available_resources) = 0;
 
   // Frees any resources allocated during Load() (except perhaps for resources
   // shared across servables that are still needed for other active ones).
@@ -96,6 +117,29 @@ class Loader {
   // returns a valid, non-null AnyPtr object. If called before a successful
   // Load() call or after Unload(), it returns null AnyPtr.
   virtual AnyPtr servable() = 0;
+};
+
+// A Loader that is oblivious to resources. Its Load() method does not take
+// an 'available_resources' argument. Its EstimateResources() method returns 0,
+// thus effectively disabling resource-based safety checks in the serving
+// system.
+//
+// Loaders that are experimental, or run in environments that do not need the
+// resource safety checks, can subclass ResourceUnsafeLoader instead of Loader.
+class ResourceUnsafeLoader : public Loader {
+ public:
+  Status EstimateResources(ResourceAllocation* estimate) const final {
+    estimate->Clear();
+    return Status::OK();
+  }
+
+  Status Load(const ResourceAllocation& available_resources) final {
+    return Load();
+  }
+
+ private:
+  // Subclasses implement this overload, which lacks 'available_resources'.
+  virtual Status Load() = 0;
 };
 
 // A source that emits Loader unique pointers.

@@ -21,7 +21,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace serving {
-
 namespace {
 
 struct TestServable {
@@ -39,7 +38,7 @@ class TestHandle : public UntypedServableHandle {
 // A manager that a returns a TestHandle.
 class TestManager : public Manager {
  public:
-  std::vector<ServableId> ListAvailableServableIds() override {
+  std::vector<ServableId> ListAvailableServableIds() const override {
     LOG(FATAL) << "Not expected to be called.";
   }
 
@@ -49,6 +48,14 @@ class TestManager : public Manager {
       std::unique_ptr<UntypedServableHandle>* result) override {
     result->reset(new TestHandle);
     return Status::OK();
+  }
+
+  std::map<ServableId, std::unique_ptr<UntypedServableHandle>>
+  GetAvailableUntypedServableHandles() const override {
+    std::map<ServableId, std::unique_ptr<UntypedServableHandle>> handles;
+    handles.emplace(ServableId{"Foo", 2},
+                    std::unique_ptr<UntypedServableHandle>(new TestHandle));
+    return handles;
   }
 };
 
@@ -64,6 +71,24 @@ TEST(ManagerTest, TypeError) {
   ServableHandle<int> handle;
   EXPECT_FALSE(manager.GetServableHandle({"Foo", 2}, &handle).ok());
   EXPECT_EQ(nullptr, handle.get());
+}
+
+TEST(ManagerTest, GetAvailableServableHandles) {
+  TestManager manager;
+  const std::map<ServableId, ServableHandle<TestServable>> handles =
+      manager.GetAvailableServableHandles<TestServable>();
+  ASSERT_EQ(1, handles.size());
+  for (const auto& handle : handles) {
+    EXPECT_EQ((ServableId{"Foo", 2}), handle.first);
+    EXPECT_EQ(7, handle.second->member);
+  }
+}
+
+TEST(ManagerTest, GetAvailableServableHandlesWrongType) {
+  TestManager manager;
+  const std::map<ServableId, ServableHandle<int>> handles =
+      manager.GetAvailableServableHandles<int>();
+  EXPECT_EQ(0, handles.size());
 }
 
 // A manager that returns OK even though the result is null. This behavior
@@ -169,7 +194,24 @@ TEST(ServableHandleTest, PointerOps) {
   EXPECT_EQ(&servables[0].member, &handles[0]->member);
 }
 
-}  // namespace
+TEST(ServableRequestTest, Specific) {
+  const auto request = ServableRequest::Specific("servable", 7);
+  EXPECT_EQ("servable", request.name);
+  EXPECT_EQ(7, *request.version);
+}
 
+TEST(ServableRequestTest, Latest) {
+  const auto request = ServableRequest::Latest("servable");
+  EXPECT_EQ("servable", request.name);
+  EXPECT_FALSE(request.version);
+}
+
+TEST(ServableRequestTest, FromId) {
+  const auto request = ServableRequest::FromId({"servable", 7});
+  EXPECT_EQ("servable", request.name);
+  EXPECT_EQ(7, *request.version);
+}
+
+}  // namespace
 }  // namespace serving
 }  // namespace tensorflow

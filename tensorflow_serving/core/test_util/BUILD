@@ -14,6 +14,17 @@ licenses(["notice"])  # Apache 2.0
 
 exports_files(["LICENSE"])
 
+filegroup(
+    name = "all_files",
+    srcs = glob(
+        ["**/*"],
+        exclude = [
+            "**/METADATA",
+            "**/OWNERS",
+        ],
+    ),
+)
+
 # Main program for tests
 cc_library(
     name = "test_main",
@@ -33,6 +44,18 @@ cc_library(
     deps = [
         "@tf//tensorflow/core:lib",
         "//external:gtest",
+        "//tensorflow_serving/core:loader",
+        "//tensorflow_serving/util:any_ptr",
+    ],
+)
+
+cc_library(
+    name = "fake_loader",
+    testonly = 1,
+    srcs = ["fake_loader.cc"],
+    hdrs = ["fake_loader.h"],
+    deps = [
+        "@tf//tensorflow/core:lib",
         "//tensorflow_serving/core:loader",
         "//tensorflow_serving/util:any_ptr",
     ],
@@ -65,11 +88,24 @@ cc_library(
 )
 
 cc_library(
-    name = "dynamic_manager_test_util",
+    name = "availability_test_util",
     testonly = 1,
-    srcs = ["dynamic_manager_test_util.cc"],
-    hdrs = ["dynamic_manager_test_util.h"],
+    srcs = ["availability_test_util.cc"],
+    hdrs = ["availability_test_util.h"],
+    visibility = ["//visibility:public"],
     deps = [
-        "//tensorflow_serving/core:dynamic_manager",
+        "@tf//tensorflow/core:lib",
+        "//external:gtest",
+        "//tensorflow_serving/core:servable_state_monitor",
+    ],
+)
+
+cc_library(
+    name = "manager_test_util",
+    testonly = 1,
+    srcs = ["manager_test_util.cc"],
+    hdrs = ["manager_test_util.h"],
+    deps = [
+        "//tensorflow_serving/core:aspired_versions_manager",
     ],
 )

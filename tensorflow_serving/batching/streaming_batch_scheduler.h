@@ -33,22 +33,19 @@ limitations under the License.
 #include "tensorflow/core/platform/thread_annotations.h"
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow_serving/batching/batch_scheduler.h"
-#include "tensorflow_serving/batching/retrier.h"
+#include "tensorflow_serving/batching/batch_scheduler_retrier.h"
 #include "tensorflow_serving/util/optional.h"
 
 namespace tensorflow {
 namespace serving {
-namespace batching {
 namespace internal {
 class SingleTaskScheduler;
 }  // namespace internal
-}  // namespace batching
 }  // namespace serving
 }  // namespace tensorflow
 
 namespace tensorflow {
 namespace serving {
-namespace batching {
 
 // A BatchScheduler implementation geared toward handling a single request type
 // running on a specific set of hardware resources. A typical scenario is one in
@@ -92,7 +89,7 @@ namespace batching {
 //
 //     These variations are permitted:
 //      - The model may reside in a single servable, or it may be spread across
-//        multiple servables that are used in unision (e.g. a vocabulary lookup
+//        multiple servables that are used in unison (e.g. a vocabulary lookup
 //        table servable and a tensorflow session servable).
 //      - The model's servable(s) may be static, or they may evolve over time
 //        (successive servable versions).
@@ -202,6 +199,12 @@ class StreamingBatchScheduler : public BatchScheduler<TaskType> {
   ~StreamingBatchScheduler() override;
 
   Status Schedule(std::unique_ptr<TaskType>* task) override;
+
+  // StreamingBatchScheduler never enqueues tasks, as discussed above.
+  size_t NumEnqueuedTasks() const override { return 0; }
+
+  // Scheduling capacity is based purely on threads that can accept tasks
+  // immediately (there is no queueing).
   size_t SchedulingCapacity() const override;
 
  private:
@@ -256,11 +259,11 @@ class StreamingBatchScheduler : public BatchScheduler<TaskType> {
   TF_DISALLOW_COPY_AND_ASSIGN(StreamingBatchScheduler);
 };
 
-// Constructs a StreamingBatchScheduler wrapped with a Retrier, for convenience.
+// Constructs a StreamingBatchScheduler wrapped with a retrier, for convenience.
 template <typename TaskType>
 static Status CreateRetryingStreamingBatchScheduler(
     const typename StreamingBatchScheduler<TaskType>::Options& schedule_options,
-    const typename Retrier<TaskType>::Options& retry_options,
+    const typename BatchSchedulerRetrier<TaskType>::Options& retry_options,
     std::function<void(std::unique_ptr<Batch<TaskType>>)>
         process_batch_callback,
     std::unique_ptr<BatchScheduler<TaskType>>* scheduler);
@@ -484,21 +487,20 @@ void StreamingBatchScheduler<TaskType>::ScheduleCloseOfCurrentOpenBatch(
 template <typename TaskType>
 Status CreateRetryingStreamingBatchScheduler(
     const typename StreamingBatchScheduler<TaskType>::Options& schedule_options,
-    const typename Retrier<TaskType>::Options& retry_options,
+    const typename BatchSchedulerRetrier<TaskType>::Options& retry_options,
     std::function<void(std::unique_ptr<Batch<TaskType>>)>
         process_batch_callback,
     std::unique_ptr<BatchScheduler<TaskType>>* scheduler) {
   std::unique_ptr<StreamingBatchScheduler<TaskType>> streaming_scheduler;
   TF_RETURN_IF_ERROR(StreamingBatchScheduler<TaskType>::Create(
       schedule_options, process_batch_callback, &streaming_scheduler));
-  std::unique_ptr<Retrier<TaskType>> retrier;
-  TF_RETURN_IF_ERROR(Retrier<TaskType>::Create(
+  std::unique_ptr<BatchSchedulerRetrier<TaskType>> retrier;
+  TF_RETURN_IF_ERROR(BatchSchedulerRetrier<TaskType>::Create(
       retry_options, std::move(streaming_scheduler), &retrier));
   *scheduler = std::move(retrier);
   return Status::OK();
 }
 
-}  // namespace batching
 }  // namespace serving
 }  // namespace tensorflow
 

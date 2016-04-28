@@ -14,11 +14,24 @@ licenses(["notice"])  # Apache 2.0
 
 exports_files(["LICENSE"])
 
+filegroup(
+    name = "all_files",
+    srcs = glob(
+        ["**/*"],
+        exclude = [
+            "**/METADATA",
+            "**/OWNERS",
+        ],
+    ),
+)
+
 cc_library(
     name = "static_storage_path_source",
     srcs = ["static_storage_path_source.cc"],
     hdrs = ["static_storage_path_source.h"],
-    visibility = ["//visibility:public"],
+    visibility = [
+        "//visibility:public",
+    ],
     deps = [
         "@tf//tensorflow/core:lib",
         ":static_storage_path_source_proto",

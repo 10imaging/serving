@@ -6,7 +6,7 @@ To compile and use TensorFlow Serving, you need to set up some prerequisites.
 
 ### Bazel
 
-TensorFlow Serving requires Bazel 0.1.5 or higher. You can find the Bazel
+TensorFlow Serving requires Bazel 0.2.0 or higher. You can find the Bazel
 installation instructions [here](http://bazel.io/docs/install.html).
 
 If you have the prerequisites for Bazel, those instructions consist of the
@@ -14,13 +14,13 @@ following steps:
 
 1.  Download the relevant binary from
     [here](https://github.com/bazelbuild/bazel/releases).
-    Let's say you downloaded bazel-0.1.5-installer-linux-x86_64.sh. You would
+    Let's say you downloaded bazel-0.2.0-installer-linux-x86_64.sh. You would
     execute:
 
     ~~~shell
     cd ~/Downloads
-    chmod +x bazel-0.1.5-installer-linux-x86_64.sh
-    ./bazel-0.1.5-installer-linux-x86_64.sh --user
+    chmod +x bazel-0.2.0-installer-linux-x86_64.sh
+    ./bazel-0.2.0-installer-linux-x86_64.sh --user
     ~~~
 2.  Set up your environment. Put this in your ~/.bashrc.
 
@@ -62,6 +62,7 @@ sudo apt-get update && sudo apt-get install -y \
 
 ~~~shell
 git clone --recurse-submodules https://github.com/tensorflow/serving
+cd serving
 ~~~
 
 `--recurse-submodules` is required to fetch TensorFlow, gRPC, and other
@@ -112,3 +113,21 @@ bazel test tensorflow_serving/...
 
 See the [basic tutorial](serving_basic.md) and [advanced tutorial](serving_advanced.md)
 for more in-depth examples of running TensorFlow Serving.
+
+
+### Continuous integration build
+
+Our [continuous integration build](http://ci.tensorflow.org/view/Serving/job/serving-master-cpu/)
+using TensorFlow [ci_build](https://github.com/tensorflow/tensorflow/tree/master/tensorflow/tools/ci_build)
+infrastructure offers you simplified development using docker. All you need is
+git and docker. No need to install all other dependencies manually.
+
+~~~shell
+git clone --recursive https://github.com/tensorflow/serving
+cd serving
+CI_TENSORFLOW_SUBMODULE_PATH=tensorflow tensorflow/tensorflow/tools/ci_build/ci_build.sh CPU bazel test //tensorflow_serving/...
+~~~
+
+Note: The `serving` directory is mapped into the container. You can develop
+outside the docker container (in your favourite editor) and when you run this
+build it will build with your changes.

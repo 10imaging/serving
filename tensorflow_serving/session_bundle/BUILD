@@ -14,6 +14,18 @@ licenses(["notice"])  # Apache 2.0
 
 exports_files(["LICENSE"])
 
+filegroup(
+    name = "all_files",
+    srcs = glob(
+        ["**/*"],
+        exclude = [
+            "**/METADATA",
+            "**/OWNERS",
+            "g3doc/sitemap.md",
+        ],
+    ),
+)
+
 py_library(
     name = "exporter",
     srcs = ["exporter.py"],
@@ -117,6 +129,7 @@ cc_test(
         "@tf//tensorflow/core:testlib",
         ":session_bundle",
         "//tensorflow_serving/core/test_util:test_main",
+        "//tensorflow_serving/test_util",
     ],
 )
 

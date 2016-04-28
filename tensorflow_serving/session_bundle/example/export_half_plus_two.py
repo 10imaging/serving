@@ -16,7 +16,7 @@
 """Exports a toy linear regression inference graph.
 
 Exports a TensorFlow graph to /tmp/half_plus_two/ based on the Exporter
-format, go/tf-exporter.
+format, https://goo.gl/OIDCqz.
 
 This graph calculates,
   y = a*x + b
@@ -25,6 +25,8 @@ where a and b are variables with a=0.5 and b=2.
 Output from this program is typically used to exercise Session
 loading and execution code.
 """
+
+from __future__ import print_function
 
 # This is a placeholder for a Google-internal import.
 
@@ -63,7 +65,7 @@ def Export():
     # CopyAssets is used as a callback during export to copy files to the
     # given export directory.
     def CopyAssets(export_path):
-      print "copying asset files to: %s" % export_path
+      print("copying asset files to: %s" % export_path)
 
     # Use a fixed global step number.
     global_step_tensor = tf.Variable(123, name="global_step")

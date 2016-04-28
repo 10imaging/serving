@@ -16,7 +16,7 @@ limitations under the License.
 // Abstractions for processing small tasks in a batched fashion, to reduce
 // processing times and costs that can be amortized across multiple tasks.
 //
-// The core class is BatchScheduler, which groups Tasks into Batches.
+// The core class is BatchScheduler, which groups tasks into batches.
 //
 // BatchScheduler encapsulates logic for aggregating multiple tasks into a
 // batch, and kicking off processing of a batch on a thread pool it manages.
@@ -42,7 +42,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace serving {
-namespace batching {
 
 // The abstract superclass for a unit of work to be done as part of a batch.
 //
@@ -53,18 +52,19 @@ namespace batching {
 //  (d) a place to store the output data, upon success.
 //
 // Items (b), (c) and (d) are typically non-owned pointers to data homed
-// elsewhere, because a Task's ownership gets transferred to a BatchScheduler
+// elsewhere, because a task's ownership gets transferred to a BatchScheduler
 // (see below) and it may be deleted as soon as it is done executing.
-class Task {
+class BatchTask {
  public:
-  virtual ~Task() = default;
+  virtual ~BatchTask() = default;
 
   // Returns the size of the task, in terms of how much it contributes to the
   // size of a batch. (A batch's size is the sum of its task sizes.)
   virtual size_t size() const = 0;
 };
 
-// A thread-safe collection of Tasks, to be executed together in some fashion.
+// A thread-safe collection of BatchTasks, to be executed together in some
+// fashion.
 //
 // At a given time, a batch is either "open" or "closed": an open batch can
 // accept new tasks; a closed one cannot. A batch is monotonic: initially it is
@@ -72,7 +72,7 @@ class Task {
 // remains fixed for the remainder of its life. A closed batch cannot be re-
 // opened. Tasks can never be removed from a batch.
 //
-// Type parameter TaskType must be a subclass of Task.
+// Type parameter TaskType must be a subclass of BatchTask.
 template <typename TaskType>
 class Batch {
  public:
@@ -127,7 +127,7 @@ class Batch {
 // and processes each batch on a pool of "batch threads" that it manages. The
 // actual logic for processing a batch is accomplished via a callback.
 //
-// Type parameter TaskType must be a subclass of Task.
+// Type parameter TaskType must be a subclass of BatchTask.
 template <typename TaskType>
 class BatchScheduler {
  public:
@@ -152,6 +152,13 @@ class BatchScheduler {
   // processed asynchronously, and any errors that occur during the processing
   // of the batch that includes the task can be reported to 'task'.
   virtual Status Schedule(std::unique_ptr<TaskType>* task) = 0;
+
+  // Returns the number of tasks that have been scheduled (i.e. accepted by
+  // Schedule()), but have yet to be handed to a thread for execution as part of
+  // a batch. Note that this returns the number of tasks, not the aggregate task
+  // size (so if there is one task of size 3 and one task of size 5, this method
+  // returns 2 rather than 8).
+  virtual size_t NumEnqueuedTasks() const = 0;
 
   // Returns a guaranteed number of size 1 tasks that can be Schedule()d without
   // getting an UNAVAILABLE error. In a typical implementation, returns the
@@ -245,7 +252,6 @@ void Batch<TaskType>::Close() {
   closed_.Notify();
 }
 
-}  // namespace batching
 }  // namespace serving
 }  // namespace tensorflow
 

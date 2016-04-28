@@ -27,7 +27,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace serving {
-namespace batching {
 namespace test_util {
 
 // A BatchScheduler implementation that enqueues tasks, and when requested via
@@ -47,12 +46,11 @@ class PuppetBatchScheduler : public BatchScheduler<TaskType> {
 
   Status Schedule(std::unique_ptr<TaskType>* task) override;
 
+  size_t NumEnqueuedTasks() const override;
+
   // This schedule has unbounded capacity, so this method returns the maximum
   // size_t value to simulate infinity.
   size_t SchedulingCapacity() const override;
-
-  // Returns the number of task that have been submitted but not yet processed.
-  int NumEnqueuedTasks() const;
 
   // Processes up to 'num_tasks' enqueued tasks, in FIFO order.
   void ProcessTasks(int num_tasks);
@@ -86,13 +84,13 @@ Status PuppetBatchScheduler<TaskType>::Schedule(
 }
 
 template <typename TaskType>
-size_t PuppetBatchScheduler<TaskType>::SchedulingCapacity() const {
-  return std::numeric_limits<size_t>::max();
+size_t PuppetBatchScheduler<TaskType>::NumEnqueuedTasks() const {
+  return queue_.size();
 }
 
 template <typename TaskType>
-int PuppetBatchScheduler<TaskType>::NumEnqueuedTasks() const {
-  return queue_.size();
+size_t PuppetBatchScheduler<TaskType>::SchedulingCapacity() const {
+  return std::numeric_limits<size_t>::max();
 }
 
 template <typename TaskType>
@@ -115,7 +113,6 @@ void PuppetBatchScheduler<TaskType>::ProcessAllTasks() {
 }
 
 }  // namespace test_util
-}  // namespace batching
 }  // namespace serving
 }  // namespace tensorflow
 

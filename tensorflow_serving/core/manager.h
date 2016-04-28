@@ -17,6 +17,7 @@ limitations under the License.
 #define TENSORFLOW_SERVING_CORE_MANAGER_H_
 
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -38,6 +39,7 @@ struct ServableRequest {
   // Initialization factories, for convenience and readability.
   static ServableRequest Specific(const string& name, const int64 version);
   static ServableRequest Latest(const string& name);
+  static ServableRequest FromId(const ServableId& id);
 
   // The name of a servable stream.
   string name;
@@ -55,25 +57,42 @@ class Manager {
  public:
   virtual ~Manager() = default;
 
-  // Gets a list of all currently servable ids, i.e. each of these can
+  // Gets a list of all available servable ids, i.e. each of these can
   // be retrieved using GetServableHandle.
-  virtual std::vector<ServableId> ListAvailableServableIds() = 0;
+  virtual std::vector<ServableId> ListAvailableServableIds() const = 0;
 
-  // Returns a ServableHandle given a ServableRequest.
-  // Returns error if no such Servable is available -- e.g. not yet loaded, has
-  // been quiesced/unloaded, etc.
-  // Callers may assume that an OK status indicates a non-null handle.
+  // Returns a map of all the currently available servables of a particular type
+  // T. The map is from the servable's id to its corresponding handle.
+  //
+  // IMPORTANT: The caller should not hold onto the handles for a long time,
+  // because holding them will delay servable loading and unloading.
+  template <typename T>
+  std::map<ServableId, ServableHandle<T>> GetAvailableServableHandles() const;
+
+  // Returns a ServableHandle given a ServableRequest. Returns error if no such
+  // Servable is available -- e.g. not yet loaded, has been quiesced/unloaded,
+  // etc. Callers may assume that an OK status indicates a non-null handle.
+  //
+  // IMPORTANT: The caller should not hold onto the handles for a long time,
+  // because holding them will delay servable loading and unloading.
   template <typename T>
   Status GetServableHandle(const ServableRequest& request,
                            ServableHandle<T>* const handle);
 
  private:
+  friend class ManagerWrapper;
+
   // Returns an UntypedServableHandle given a ServableRequest.
   // Returns error if no such Servable is available -- e.g. not yet loaded, has
   // been quiesced/unloaded, etc.
   virtual Status GetUntypedServableHandle(
       const ServableRequest& request,
       std::unique_ptr<UntypedServableHandle>* untyped_handle) = 0;
+
+  // Returns a map of all the available servable ids to their corresponding
+  // UntypedServableHandles.
+  virtual std::map<ServableId, std::unique_ptr<UntypedServableHandle>>
+  GetAvailableUntypedServableHandles() const = 0;
 };
 
 //
@@ -87,6 +106,11 @@ inline ServableRequest ServableRequest::Specific(const string& name,
 
 inline ServableRequest ServableRequest::Latest(const string& name) {
   return ServableRequest{name, nullopt};
+}
+
+inline ServableRequest ServableRequest::FromId(const ServableId& id) {
+  DCHECK_GE(id.version, 0);
+  return Specific(id.name, id.version);
 }
 
 inline string ServableRequest::DebugString() const {
@@ -111,6 +135,21 @@ Status Manager::GetServableHandle(const ServableRequest& request,
         "Servable type doesn't match the asked for type.");
   }
   return Status::OK();
+}
+
+template <typename T>
+std::map<ServableId, ServableHandle<T>> Manager::GetAvailableServableHandles()
+    const {
+  std::map<ServableId, ServableHandle<T>> id_and_handles;
+  std::map<ServableId, std::unique_ptr<UntypedServableHandle>>
+      id_and_untyped_handles = GetAvailableUntypedServableHandles();
+  for (auto& id_and_untyped_handle : id_and_untyped_handles) {
+    auto handle = ServableHandle<T>(std::move(id_and_untyped_handle.second));
+    if (handle.get() != nullptr) {
+      id_and_handles.emplace(id_and_untyped_handle.first, std::move(handle));
+    }
+  }
+  return id_and_handles;
 }
 
 }  // namespace serving

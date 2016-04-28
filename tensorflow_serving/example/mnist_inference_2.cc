@@ -31,27 +31,26 @@ limitations under the License.
 #include <string>
 #include <vector>
 
-#include "grpc/include/grpc++/completion_queue.h"
-#include "grpc/include/grpc++/security/server_credentials.h"
-#include "grpc/include/grpc++/server.h"
-#include "grpc/include/grpc++/server_builder.h"
-#include "grpc/include/grpc++/server_context.h"
-#include "grpc/include/grpc++/support/async_unary_call.h"
-#include "grpc/include/grpc++/support/status.h"
-#include "grpc/include/grpc++/support/status_code_enum.h"
-#include "grpc/include/grpc/grpc.h"
-#include "grpc/include/grpc/support/log.h"
+#include "grpc++/completion_queue.h"
+#include "grpc++/security/server_credentials.h"
+#include "grpc++/server.h"
+#include "grpc++/server_builder.h"
+#include "grpc++/server_context.h"
+#include "grpc++/support/async_unary_call.h"
+#include "grpc++/support/status.h"
+#include "grpc++/support/status_code_enum.h"
+#include "grpc/grpc.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_types.h"
 #include "tensorflow/core/framework/types.pb.h"
-#include "tensorflow/core/lib/core/command_line_flags.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/strings/strcat.h"
 #include "tensorflow/core/platform/env.h"
 #include "tensorflow/core/platform/init_main.h"
 #include "tensorflow/core/platform/types.h"
+#include "tensorflow/core/util/command_line_flags.h"
 #include "tensorflow_serving/batching/batch_scheduler.h"
-#include "tensorflow_serving/batching/retrier.h"
+#include "tensorflow_serving/batching/batch_scheduler_retrier.h"
 #include "tensorflow_serving/batching/streaming_batch_scheduler.h"
 #include "tensorflow_serving/core/manager.h"
 #include "tensorflow_serving/core/servable_handle.h"
@@ -62,7 +61,6 @@ limitations under the License.
 #include "tensorflow_serving/session_bundle/manifest.pb.h"
 #include "tensorflow_serving/session_bundle/session_bundle.h"
 #include "tensorflow_serving/session_bundle/signature.h"
-#include "tensorflow_serving/util/unique_ptr_with_deps.h"
 
 using grpc::InsecureServerCredentials;
 using grpc::Server;
@@ -78,9 +76,6 @@ using tensorflow::serving::MnistService;
 using tensorflow::string;
 using tensorflow::Tensor;
 using tensorflow::serving::ClassificationSignature;
-using tensorflow::serving::UniquePtrWithDeps;
-
-TF_DEFINE_int32(port, 0, "Port server listening on.");
 
 namespace {
 const int kImageSize = 28;
@@ -90,7 +85,7 @@ const int kNumLabels = 10;
 
 class MnistServiceImpl;
 
-// Class encompasing the state and logic needed to serve a request.
+// Class encompassing the state and logic needed to serve a request.
 class CallData {
  public:
   CallData(MnistServiceImpl* service_impl,
@@ -133,7 +128,7 @@ class CallData {
 };
 
 // A Task holds all of the information for a single inference request.
-struct Task : public tensorflow::serving::batching::Task {
+struct Task : public tensorflow::serving::BatchTask {
   ~Task() override = default;
   size_t size() const override { return 1; }
 
@@ -146,22 +141,21 @@ struct Task : public tensorflow::serving::batching::Task {
 class MnistServiceImpl final {
  public:
   MnistServiceImpl(const string& servable_name,
-                   UniquePtrWithDeps<tensorflow::serving::Manager> manager);
+                   std::unique_ptr<tensorflow::serving::Manager> manager);
 
   void Classify(CallData* call_data);
 
   // Produces classifications for a batch of requests and associated responses.
   void DoClassifyInBatch(
-      std::unique_ptr<tensorflow::serving::batching::Batch<Task>> batch);
+      std::unique_ptr<tensorflow::serving::Batch<Task>> batch);
 
   // Name of the servable to use for inference.
   const string servable_name_;
   // Manager in charge of loading and unloading servables.
-  UniquePtrWithDeps<tensorflow::serving::Manager> manager_;
+  std::unique_ptr<tensorflow::serving::Manager> manager_;
   // A scheduler for batching multiple request calls into single calls to
   // Session->Run().
-  std::unique_ptr<tensorflow::serving::batching::BatchScheduler<Task>>
-      batch_scheduler_;
+  std::unique_ptr<tensorflow::serving::BatchScheduler<Task>> batch_scheduler_;
 };
 
 // Take in the "service" instance (in this case representing an asynchronous
@@ -207,7 +201,7 @@ void CallData::Finish(Status status) {
 
 MnistServiceImpl::MnistServiceImpl(
     const string& servable_name,
-    UniquePtrWithDeps<tensorflow::serving::Manager> manager)
+    std::unique_ptr<tensorflow::serving::Manager> manager)
     : servable_name_(servable_name), manager_(std::move(manager)) {
   // Setup a batcher used to combine multiple requests (tasks) into a single
   // graph run for efficiency.
@@ -219,18 +213,16 @@ MnistServiceImpl::MnistServiceImpl(
   // Use the default batch-size, timeout and thread options.  In general
   // the numbers are extremely performance critical and should be tuned based
   // specific graph structure and usage.
-  tensorflow::serving::batching::StreamingBatchScheduler<Task>::Options
-      scheduler_options;
+  tensorflow::serving::StreamingBatchScheduler<Task>::Options scheduler_options;
   scheduler_options.thread_pool_name = "mnist_service_batch_threads";
-  tensorflow::serving::batching::Retrier<Task>::Options retry_options;
+  tensorflow::serving::BatchSchedulerRetrier<Task>::Options retry_options;
   // Retain the default retry options.
-  TF_CHECK_OK(
-      tensorflow::serving::batching::CreateRetryingStreamingBatchScheduler<
-          Task>(
-          scheduler_options, retry_options,
-          [this](std::unique_ptr<tensorflow::serving::batching::Batch<Task>>
-                     batch) { this->DoClassifyInBatch(std::move(batch)); },
-          &batch_scheduler_));
+  TF_CHECK_OK(tensorflow::serving::CreateRetryingStreamingBatchScheduler<Task>(
+      scheduler_options, retry_options,
+      [this](std::unique_ptr<tensorflow::serving::Batch<Task>> batch) {
+        this->DoClassifyInBatch(std::move(batch));
+      },
+      &batch_scheduler_));
 }
 
 // Creates a gRPC Status from a TensorFlow Status.
@@ -265,7 +257,7 @@ void MnistServiceImpl::Classify(CallData* calldata) {
 
 // Produces classifications for a batch of requests and associated responses.
 void MnistServiceImpl::DoClassifyInBatch(
-    std::unique_ptr<tensorflow::serving::batching::Batch<Task>> batch) {
+    std::unique_ptr<tensorflow::serving::Batch<Task>> batch) {
   batch->WaitUntilClosed();
   if (batch->empty()) {
     return;
@@ -380,7 +372,7 @@ void HandleRpcs(MnistServiceImpl* service_impl,
 
 // Runs MnistService server until shutdown.
 void RunServer(const int port, const string& servable_name,
-               UniquePtrWithDeps<tensorflow::serving::Manager> manager) {
+               std::unique_ptr<tensorflow::serving::Manager> manager) {
   // "0.0.0.0" is the way to listen on localhost in gRPC.
   const string server_address = "0.0.0.0:" + std::to_string(port);
 
@@ -388,7 +380,7 @@ void RunServer(const int port, const string& servable_name,
   ServerBuilder builder;
   std::shared_ptr<grpc::ServerCredentials> creds = InsecureServerCredentials();
   builder.AddListeningPort(server_address, creds);
-  builder.RegisterAsyncService(&service);
+  builder.RegisterService(&service);
   std::unique_ptr<ServerCompletionQueue> cq = builder.AddCompletionQueue();
   std::unique_ptr<Server> server(builder.BuildAndStart());
   LOG(INFO) << "Running...";
@@ -401,9 +393,11 @@ void RunServer(const int port, const string& servable_name,
 
 int main(int argc, char** argv) {
   // Parse command-line options.
-  tensorflow::Status s = tensorflow::ParseCommandLineFlags(&argc, argv);
-  if (!s.ok()) {
-    LOG(FATAL) << "Error parsing command line flags: " << s.ToString();
+  tensorflow::int32 port = 0;
+  const bool parse_result =
+      tensorflow::ParseFlags(&argc, argv, {tensorflow::Flag("port", &port)});
+  if (!parse_result) {
+    LOG(FATAL) << "Error parsing command line flags.";
   }
   if (argc != 2) {
     LOG(FATAL) << "Usage: mnist_inference_2 --port=9000 /path/to/exports";
@@ -414,7 +408,7 @@ int main(int argc, char** argv) {
   // WARNING(break-tutorial-inline-code): The following code snippet is
   // in-lined in tutorials, please update tutorial documents accordingly
   // whenever code changes.
-  UniquePtrWithDeps<tensorflow::serving::Manager> manager;
+  std::unique_ptr<tensorflow::serving::Manager> manager;
   tensorflow::Status status = tensorflow::serving::simple_servers::
       CreateSingleTFModelManagerFromBasePath(export_base_path, &manager);
 
@@ -430,7 +424,7 @@ int main(int argc, char** argv) {
   } while (ready_ids.empty());
 
   // Run the service.
-  RunServer(FLAGS_port, ready_ids[0].name, std::move(manager));
+  RunServer(port, ready_ids[0].name, std::move(manager));
 
   return 0;
 }

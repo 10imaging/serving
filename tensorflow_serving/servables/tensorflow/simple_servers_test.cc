@@ -31,7 +31,7 @@ limitations under the License.
 #include "tensorflow/core/public/session.h"
 #include "tensorflow_serving/core/servable_handle.h"
 #include "tensorflow_serving/session_bundle/session_bundle.h"
-#include "tensorflow_serving/util/unique_ptr_with_deps.h"
+#include "tensorflow_serving/test_util/test_util.h"
 
 namespace tensorflow {
 namespace serving {
@@ -40,10 +40,9 @@ namespace {
 class SimpleServersTest : public ::testing::Test {
  protected:
   SimpleServersTest()
-      : test_data_path_(io::JoinPath(
-            getenv("TEST_SRCDIR"),
-            "tensorflow_serving/session_bundle/"
-            "example/half_plus_two/")) {}
+      : test_data_path_(
+            test_util::TestSrcDirPath("session_bundle/example/half_plus_two")) {
+  }
 
   // Test that a SessionBundle handles a single request for the half plus two
   // model properly. The request has size=2, for batching purposes.
@@ -74,7 +73,7 @@ class SimpleServersTest : public ::testing::Test {
 };
 
 TEST_F(SimpleServersTest, Basic) {
-  UniquePtrWithDeps<Manager> manager;
+  std::unique_ptr<Manager> manager;
   const Status status = simple_servers::CreateSingleTFModelManagerFromBasePath(
       test_data_path_, &manager);
   TF_CHECK_OK(status);

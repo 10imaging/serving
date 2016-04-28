@@ -15,11 +15,12 @@
 
 """Export a TensorFlow model.
 
-See: go/tf-exporter
+See: https://goo.gl/OIDCqz
 """
 
 import os
 import re
+import six
 
 import tensorflow as tf
 
@@ -32,13 +33,14 @@ from tensorflow.python.training import training_util
 from tensorflow_serving.session_bundle import gc
 from tensorflow_serving.session_bundle import manifest_pb2
 
-# See: go/tf-exporter for these constants and directory structure.
+# See: https://goo.gl/OIDCqz for these constants and directory structure.
 VERSION_FORMAT_SPECIFIER = "%08d"
 ASSETS_DIRECTORY = "assets"
 EXPORT_BASE_NAME = "export"
 EXPORT_SUFFIX_NAME = "meta"
 META_GRAPH_DEF_FILENAME = EXPORT_BASE_NAME + "." + EXPORT_SUFFIX_NAME
-VARIABLES_DIRECTORY = EXPORT_BASE_NAME + "-?????-of-?????"
+VARIABLES_FILENAME = EXPORT_BASE_NAME
+VARIABLES_FILENAME_PATTERN = VARIABLES_FILENAME + "-?????-of-?????"
 INIT_OP_KEY = "serving_init_op"
 SIGNATURES_KEY = "serving_signatures"
 ASSETS_KEY = "serving_assets"
@@ -76,9 +78,9 @@ def classification_signature(input_tensor,
   """
   signature = manifest_pb2.Signature()
   signature.classification_signature.input.tensor_name = input_tensor.name
-  if classes_tensor:
+  if classes_tensor is not None:
     signature.classification_signature.classes.tensor_name = classes_tensor.name
-  if scores_tensor:
+  if scores_tensor is not None:
     signature.classification_signature.scores.tensor_name = scores_tensor.name
   return signature
 
@@ -93,7 +95,7 @@ def generic_signature(name_tensor_map):
     A Signature message.
   """
   signature = manifest_pb2.Signature()
-  for name, tensor in name_tensor_map.iteritems():
+  for name, tensor in six.iteritems(name_tensor_map):
     signature.generic_signature.map[name].tensor_name = tensor.name
   return signature
 
@@ -102,14 +104,10 @@ class Exporter(object):
   """Exporter helps package a TensorFlow model for serving.
 
   Args:
-    saver: a Saver object created with sharded=True.
-
-    Raises:
-      AssertionError: if the Saver is not sharded.
+    saver: Saver object.
   """
 
   def __init__(self, saver):
-    assert saver.as_saver_def().sharded
     self._saver = saver
     self._has_init = False
 
@@ -170,7 +168,7 @@ class Exporter(object):
     signatures_proto = manifest_pb2.Signatures()
     if default_graph_signature:
       signatures_proto.default_signature.CopyFrom(default_graph_signature)
-    for signature_name, signature in named_graph_signatures.iteritems():
+    for signature_name, signature in six.iteritems(named_graph_signatures):
       signatures_proto.named_signatures[signature_name].CopyFrom(signature)
     signatures_any_buf = any_pb2.Any()
     signatures_any_buf.Pack(signatures_proto)
@@ -235,6 +233,7 @@ class Exporter(object):
       gfile.MakeDirs(assets_dir)
       self._assets_callback(assets_dir)
 
+    # TODO(b/27794910): Delete *checkpoint* file before rename.
     gfile.Rename(tmp_export_dir, export_dir)
 
     if exports_to_keep:
